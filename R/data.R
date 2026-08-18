@@ -14,21 +14,40 @@ fetch_raw <- function() {
   read_sheet(SHEET_ID)
 }
 
-# Nettoie les réponses brutes en un data.frame date/poids trié,
-# avec une seule ligne par jour (moyenne si plusieurs pesées le même jour).
-# Utilise la position des colonnes (1 = horodatage, 2 = poids) plutôt que
-# leur nom : le libellé exact de la question dans le Sheet peut varier.
-clean_weight_data <- function(raw) {
-  d <- data.frame(
-    date = as.Date(raw[[1]], tz = "Europe/Paris"),
-    poids = suppressWarnings(as.numeric(gsub(",", ".", as.character(raw[[2]]))))
+# Classe une heure en moment de la journée : matin (< 10h), milieu de
+# journée, ou soir (>= 20h)
+moment_jour <- function(heure) {
+  h <- as.numeric(format(heure, "%H")) + as.numeric(format(heure, "%M")) / 60
+  factor(
+    ifelse(h < 10, "Matin", ifelse(h >= 20, "Soir", "Milieu de journée")),
+    levels = c("Matin", "Milieu de journée", "Soir")
   )
-  d <- d[!is.na(d$date) & !is.na(d$poids), ]
-  d <- aggregate(poids ~ date, data = d, FUN = mean)
-  d[order(d$date), ]
 }
 
-# Point d'entrée utilisé par le dashboard
+# Nettoie les réponses brutes : une ligne par pesée (date, heure, moment,
+# poids), triée par horodatage. Utilise la position des colonnes (1 =
+# horodatage, 2 = poids) plutôt que leur nom : le libellé exact de la
+# question dans le Sheet peut varier.
+clean_weight_data <- function(raw) {
+  d <- data.frame(
+    heure = as.POSIXct(raw[[1]], tz = "Europe/Paris"),
+    poids = suppressWarnings(as.numeric(gsub(",", ".", as.character(raw[[2]]))))
+  )
+  d <- d[!is.na(d$heure) & !is.na(d$poids), ]
+  d$date <- as.Date(d$heure, tz = "Europe/Paris")
+  d$moment <- moment_jour(d$heure)
+  d[order(d$heure), c("date", "heure", "moment", "poids")]
+}
+
+# Point d'entrée utilisé par le dashboard : une ligne par pesée
 get_weight_data <- function() {
   clean_weight_data(fetch_raw())
+}
+
+# Agrège en une ligne par jour (moyenne) : c'est cette version qui alimente
+# la tendance, la projection et le résumé, quel que soit le nombre de
+# pesées par jour.
+agg_daily <- function(df) {
+  d <- aggregate(poids ~ date, data = df, FUN = mean)
+  d[order(d$date), ]
 }

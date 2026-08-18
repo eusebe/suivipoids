@@ -9,15 +9,22 @@ server: shiny
 source("R/config.R")
 source("R/data.R")
 source("R/trend.R")
+source("R/bmi.R")
 source("R/plot.R")
 library(shiny)
-gs_auth()
+
+fake_data_mode <- identical(Sys.getenv("SUIVIPOIDS_FAKE_DATA"), "true")
+if (fake_data_mode) {
+  source("R/fake_data.R")
+} else {
+  gs_auth()
+}
 ```
 
 ## {.sidebar}
 
 ```{r}
-numericInput("objectif", "Objectif (kg)", value = NA, min = 30, max = 200, step = 0.1)
+numericInput("objectif", "Objectif (kg)", value = 80, min = 30, max = 200, step = 0.1)
 selectInput(
   "fenetre", "Tendance calculée sur",
   choices = c(
@@ -28,75 +35,161 @@ selectInput(
   ),
   selected = "14"
 )
+dateInput("date_cible", "Poids estimé le", value = Sys.Date() + 30, format = "dd/mm/yyyy")
+checkboxInput("distinguer_moment", "Distinguer matin / midi / soir", value = TRUE)
 actionButton("refresh", "Rafraîchir", icon = icon("rotate"))
 ```
 
-## Row
+## Row {height="55%"}
 
 ```{r}
-#| title: Évolution
+#| title: Évolution du poids
 plotOutput("weightPlot")
 ```
 
-## Row {height="30%"}
+## Row {height="45%"}
+
+### Column {width="50%"}
 
 ```{r}
 #| title: Résumé
 uiOutput("summary")
 ```
 
+### Column {width="50%"}
+
+```{r}
+#| title: IMC
+plotOutput("bmiPlot")
+```
+
 ```{r}
 #| context: server
-weight_data <- eventReactive(input$refresh, {
-  get_weight_data()
+weight_data_brut <- eventReactive(input$refresh, {
+  if (fake_data_mode) generate_fake_weight_data() else get_weight_data()
 }, ignoreNULL = FALSE)
+
+weight_data <- reactive({
+  agg_daily(weight_data_brut())
+})
 
 n_jours <- reactive({
   if (identical(input$fenetre, "Inf")) Inf else as.numeric(input$fenetre)
 })
 
+target_ou_defaut <- function(d) {
+  target <- input$objectif
+  if (is.na(target)) target <- min(d$poids)
+  target
+}
+
+# Série utilisée pour la tendance/projection : pesées du matin seules si on
+# distingue les moments et qu'il y en a assez, sinon l'agrégat journalier.
+ref <- reactive({
+  serie_reference(weight_data(), weight_data_brut(), isTRUE(input$distinguer_moment))
+})
+
 output$weightPlot <- renderPlot({
   d <- weight_data()
   validate(need(nrow(d) >= 2, "Pas encore assez de données pour tracer une tendance."))
-  target <- input$objectif
-  if (is.na(target)) target <- min(d$poids)
-  render_weight_plot(d, target, n_jours())
+  target <- target_ou_defaut(d)
+  proj <- project_target(ref()$serie, target, n_jours())
+  df_brut <- if (isTRUE(input$distinguer_moment)) weight_data_brut() else NULL
+  render_weight_plot(
+    d, target, n_jours(), proj,
+    df_brut = df_brut, distinguer_moment = isTRUE(input$distinguer_moment)
+  )
+})
+
+output$bmiPlot <- renderPlot({
+  d <- weight_data()
+  validate(need(nrow(d) >= 1, "Pas encore de données."))
+  render_bmi_plot(d, target_ou_defaut(d))
 })
 
 output$summary <- renderUI({
   d <- weight_data()
 
-  if (nrow(d) < 2) {
-    return(tags$p(sprintf(
-      "%d pesée(s) enregistrée(s). Ajoute au moins 2 pesées à des dates différentes pour voir une tendance.",
-      nrow(d)
-    )))
+  if (nrow(d) == 0) {
+    return(tags$p("Aucune pesée enregistrée pour l'instant."))
   }
 
   poids_actuel <- d$poids[which.max(d$date)]
-  target <- input$objectif
-
-  if (is.na(target)) {
-    return(tagList(
-      tags$p(sprintf(
-        "Poids actuel : %.1f kg (dernière pesée le %s)",
-        poids_actuel, format(max(d$date), "%d/%m/%Y")
-      )),
-      tags$p("Renseigne un objectif à gauche pour voir la projection.")
-    ))
-  }
-
-  proj <- project_target(d, target, n_jours())
+  imc_actuel <- imc(poids_actuel)
 
   lignes <- list(
     tags$p(sprintf(
       "Poids actuel : %.1f kg (dernière pesée le %s)",
       poids_actuel, format(max(d$date), "%d/%m/%Y")
     )),
-    tags$p(sprintf("Tendance : %+.2f kg/semaine", proj$pente_semaine))
+    tags$p(sprintf(
+      "IMC actuel : %.1f (%s)",
+      imc_actuel, as.character(imc_categorie(imc_actuel))
+    ))
   )
 
+  if (nrow(d) < 2) {
+    lignes <- c(lignes, list(tags$p(
+      "Ajoute au moins 2 pesées à des dates différentes pour voir une tendance."
+    )))
+    return(do.call(tagList, lignes))
+  }
+
+  target <- target_ou_defaut(d)
+  fen <- n_jours()
+  reference <- ref()
+  sref <- reference$serie
+  proj <- project_target(sref, target, fen)
+  wow <- week_over_week(sref)
+  stats_fenetre <- window_data(d, fen)
+  reg7 <- regularite_pesees(d, 7)
+  reg30 <- regularite_pesees(d, 30)
+  poids_estime <- weight_at_date(sref, input$date_cible, fen)
+
+  lignes <- c(lignes, list(
+    tags$p(sprintf("Tendance : %+.2f kg/semaine", proj$pente_semaine))
+  ))
+
+  if (reference$base == "matin") {
+    lignes <- c(lignes, list(tags$p(
+      "Basée sur les pesées du matin uniquement, plus comparables d'un jour à l'autre."
+    )))
+  }
+
+  if (!is.na(wow$delta)) {
+    lignes <- c(lignes, list(tags$p(sprintf(
+      "Cette semaine : %.1f kg en moyenne (%+.1f kg vs semaine précédente)",
+      wow$moyenne_recente, wow$delta
+    ))))
+  }
+
+  if (isTRUE(is_plateau(sref, target))) {
+    lignes <- c(lignes, list(tags$p(
+      "Ton poids semble stable ces derniers jours : c'est normal, un plateau ne veut pas dire que la tendance de fond s'arrête."
+    )))
+  }
+
+  lignes <- c(lignes, list(
+    tags$p(sprintf(
+      "Sur la période affichée : min %.1f kg, max %.1f kg, moyenne %.1f kg",
+      min(stats_fenetre$poids), max(stats_fenetre$poids), mean(stats_fenetre$poids)
+    )),
+    tags$p(sprintf(
+      "Pesées : %d/7 cette semaine, %d/30 ce mois-ci",
+      reg7, reg30
+    ))
+  ))
+
+  if (!is.na(poids_estime)) {
+    lignes <- c(lignes, list(tags$p(sprintf(
+      "Poids estimé le %s : %.1f kg",
+      format(input$date_cible, "%d/%m/%Y"), poids_estime
+    ))))
+  }
+
   if (isTRUE(proj$atteignable)) {
+    palier <- next_milestone(poids_actuel, target)
+    proj_palier <- project_target(sref, palier, fen)
     lignes <- c(lignes, list(
       tags$p(sprintf("Objectif %.1f kg : reste %.1f kg", target, abs(proj$kg_restant))),
       tags$p(sprintf(
@@ -104,6 +197,12 @@ output$summary <- renderUI({
         format(proj$date_estimee, "%d/%m/%Y"), round(proj$jours_restants)
       ))
     ))
+    if (palier != target && isTRUE(proj_palier$atteignable)) {
+      lignes <- c(lignes, list(tags$p(sprintf(
+        "Prochain palier : %.1f kg, estimé le %s",
+        palier, format(proj_palier$date_estimee, "%d/%m/%Y")
+      ))))
+    }
   } else {
     lignes <- c(lignes, list(
       tags$p("La tendance actuelle ne va pas vers cet objectif pour l'instant.")

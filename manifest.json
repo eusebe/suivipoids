@@ -2160,9 +2160,6 @@
     }
   },
   "files": {
-    "_publish.yml": {
-      "checksum": "fff475c317480160bff9752b13f6d557"
-    },
     "index_files/libs/bootstrap/bootstrap-1c70b8abf0053b2bd16d9dd29a3bf602.min.css": {
       "checksum": "1c70b8abf0053b2bd16d9dd29a3bf602"
     },
@@ -2230,25 +2227,31 @@
       "checksum": "d828775275749701b48bd9d958814111"
     },
     "index.html": {
-      "checksum": "090535e68481f6e6b710b6f63e232ece"
+      "checksum": "4ee6c25e53340bf762b337f7eae25a8a"
     },
     "index.qmd": {
-      "checksum": "7dda444fb7a627d94705ce048d6a6425"
+      "checksum": "889d7c4fd6ff6f75f0e716e90434511e"
+    },
+    "R/bmi.R": {
+      "checksum": "8acdc6080953cafb36193be111efe3aa"
     },
     "R/config.R": {
-      "checksum": "3a05f01dc97e877a9cf0a357efd91dad"
+      "checksum": "968342a8163374b6a85995b6a2408b98"
     },
     "R/data.R": {
-      "checksum": "4962e66889658b2b52f03fb97466a2b9"
+      "checksum": "39c20a0c730072d0c0c8f2637fd7793c"
+    },
+    "R/fake_data.R": {
+      "checksum": "5db4f64a206309ddde49a3a57fcbf246"
     },
     "R/plot.R": {
-      "checksum": "455c9a331a9cdd8f7fdcba7a0fcbb454"
+      "checksum": "4784ae0fa123dce8a99e47f21595bc3c"
     },
     "R/trend.R": {
-      "checksum": "3f1a14affaa0ce32194b0dd7f3f1f405"
+      "checksum": "6d0c03b8735b1b30b10c589ea4e2b680"
     },
     "secrets/liens.md": {
-      "checksum": "828a46d497dceca9554b507768c712b3"
+      "checksum": "a87ee4ca0895d19be31a7084a029412c"
     },
     "secrets/service-account.json": {
       "checksum": "3a0d227730d1cd9122c136996deeba90"
