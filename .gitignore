@@ -1,0 +1,29 @@
+# Secrets — never commit
+secrets/
+*.json
+!manifest.json
+liens.md
+CLAUDE.md
+
+# R / renv
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+renv/library/
+renv/local/
+renv/cellar/
+renv/lock/
+renv/python/
+renv/sandbox/
+renv/staging/
+
+# Quarto
+/.quarto/
+index_files/
+*_cache/
+index.html
+index.knit.md
+
+# macOS
+.DS_Store

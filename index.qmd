@@ -1,0 +1,115 @@
+---
+title: "Mon poids"
+format: dashboard
+server: shiny
+---
+
+```{r}
+#| context: setup
+source("R/config.R")
+source("R/data.R")
+source("R/trend.R")
+source("R/plot.R")
+library(shiny)
+gs_auth()
+```
+
+## {.sidebar}
+
+```{r}
+numericInput("objectif", "Objectif (kg)", value = NA, min = 30, max = 200, step = 0.1)
+selectInput(
+  "fenetre", "Tendance calculée sur",
+  choices = c(
+    "7 derniers jours" = "7",
+    "14 derniers jours" = "14",
+    "30 derniers jours" = "30",
+    "Depuis le début" = "Inf"
+  ),
+  selected = "14"
+)
+actionButton("refresh", "Rafraîchir", icon = icon("rotate"))
+```
+
+## Row
+
+```{r}
+#| title: Évolution
+plotOutput("weightPlot")
+```
+
+## Row {height="30%"}
+
+```{r}
+#| title: Résumé
+uiOutput("summary")
+```
+
+```{r}
+#| context: server
+weight_data <- eventReactive(input$refresh, {
+  get_weight_data()
+}, ignoreNULL = FALSE)
+
+n_jours <- reactive({
+  if (identical(input$fenetre, "Inf")) Inf else as.numeric(input$fenetre)
+})
+
+output$weightPlot <- renderPlot({
+  d <- weight_data()
+  validate(need(nrow(d) >= 2, "Pas encore assez de données pour tracer une tendance."))
+  target <- input$objectif
+  if (is.na(target)) target <- min(d$poids)
+  render_weight_plot(d, target, n_jours())
+})
+
+output$summary <- renderUI({
+  d <- weight_data()
+
+  if (nrow(d) < 2) {
+    return(tags$p(sprintf(
+      "%d pesée(s) enregistrée(s). Ajoute au moins 2 pesées à des dates différentes pour voir une tendance.",
+      nrow(d)
+    )))
+  }
+
+  poids_actuel <- d$poids[which.max(d$date)]
+  target <- input$objectif
+
+  if (is.na(target)) {
+    return(tagList(
+      tags$p(sprintf(
+        "Poids actuel : %.1f kg (dernière pesée le %s)",
+        poids_actuel, format(max(d$date), "%d/%m/%Y")
+      )),
+      tags$p("Renseigne un objectif à gauche pour voir la projection.")
+    ))
+  }
+
+  proj <- project_target(d, target, n_jours())
+
+  lignes <- list(
+    tags$p(sprintf(
+      "Poids actuel : %.1f kg (dernière pesée le %s)",
+      poids_actuel, format(max(d$date), "%d/%m/%Y")
+    )),
+    tags$p(sprintf("Tendance : %+.2f kg/semaine", proj$pente_semaine))
+  )
+
+  if (isTRUE(proj$atteignable)) {
+    lignes <- c(lignes, list(
+      tags$p(sprintf("Objectif %.1f kg : reste %.1f kg", target, abs(proj$kg_restant))),
+      tags$p(sprintf(
+        "Date estimée : %s (dans %d jours)",
+        format(proj$date_estimee, "%d/%m/%Y"), round(proj$jours_restants)
+      ))
+    ))
+  } else {
+    lignes <- c(lignes, list(
+      tags$p("La tendance actuelle ne va pas vers cet objectif pour l'instant.")
+    ))
+  }
+
+  do.call(tagList, lignes)
+})
+```
