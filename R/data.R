@@ -29,8 +29,14 @@ moment_jour <- function(heure) {
 # horodatage, 2 = poids) plutôt que leur nom : le libellé exact de la
 # question dans le Sheet peut varier.
 clean_weight_data <- function(raw) {
+  # googlesheets4 lit l'horodatage du Sheet en l'étiquetant "UTC", mais la
+  # valeur est en réalité déjà l'heure murale Europe/Paris telle que saisie
+  # par le Form (les serials Google Sheets ne portent pas de fuseau). Il
+  # faut donc réinterpréter ces chiffres tels quels en Europe/Paris, pas les
+  # convertir (as.POSIXct(x, tz=) sur un POSIXct décale l'instant plutôt que
+  # de relabelliser, ce qui ajoutait à tort le décalage CEST/CET).
   d <- data.frame(
-    heure = as.POSIXct(raw[[1]], tz = "Europe/Paris"),
+    heure = as.POSIXct(format(raw[[1]], tz = "UTC"), tz = "Europe/Paris"),
     poids = suppressWarnings(as.numeric(gsub(",", ".", as.character(raw[[2]]))))
   )
   d <- d[!is.na(d$heure) & !is.na(d$poids), ]
