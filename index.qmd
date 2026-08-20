@@ -24,7 +24,8 @@ if (fake_data_mode) {
 ## {.sidebar}
 
 ```{r}
-numericInput("objectif", "Objectif (kg)", value = 80, min = 30, max = 200, step = 0.1)
+numericInput("objectif", "Objectif (kg)", value = 76, min = 30, max = 200, step = 0.1)
+numericInput("objectif_intermediaire", "Objectif intermédiaire (kg)", value = 80, min = 30, max = 200, step = 0.1)
 selectInput(
   "fenetre", "Tendance calculée sur",
   choices = c(
@@ -94,10 +95,15 @@ output$weightPlot <- renderPlot({
   validate(need(nrow(d) >= 2, "Pas encore assez de données pour tracer une tendance."))
   target <- target_ou_defaut(d)
   proj <- project_target(ref()$serie, target, n_jours())
+  target_inter <- input$objectif_intermediaire
+  a_objectif_intermediaire <- !is.na(target_inter) && target_inter != target
+  proj_inter <- if (a_objectif_intermediaire) project_target(ref()$serie, target_inter, n_jours()) else NULL
   df_brut <- if (isTRUE(input$distinguer_moment)) weight_data_brut() else NULL
   render_weight_plot(
     d, target, n_jours(), proj,
-    df_brut = df_brut, distinguer_moment = isTRUE(input$distinguer_moment)
+    df_brut = df_brut, distinguer_moment = isTRUE(input$distinguer_moment),
+    target_intermediaire = if (a_objectif_intermediaire) target_inter else NULL,
+    proj_intermediaire = proj_inter
   )
 })
 
@@ -185,6 +191,18 @@ output$summary <- renderUI({
       "Poids estimé le %s : %.1f kg",
       format(input$date_cible, "%d/%m/%Y"), poids_estime
     ))))
+  }
+
+  target_inter <- input$objectif_intermediaire
+  if (!is.na(target_inter) && target_inter != target &&
+      sign(target_inter - poids_actuel) == sign(target - poids_actuel)) {
+    proj_inter <- project_target(sref, target_inter, fen)
+    if (isTRUE(proj_inter$atteignable)) {
+      lignes <- c(lignes, list(tags$p(sprintf(
+        "Objectif intermédiaire %.1f kg : estimé le %s",
+        target_inter, format(proj_inter$date_estimee, "%d/%m/%Y")
+      ))))
+    }
   }
 
   if (isTRUE(proj$atteignable)) {

@@ -11,7 +11,8 @@ MOMENT_COULEURS <- c("Matin" = "#2166ac", "Milieu de journée" = "#f39c12", "Soi
 # une colonne `moment`) est fourni : points colorés par moment, avec une
 # tendance calculée séparément par moment. Sinon : comportement par défaut
 # (points uniformes, tendance sélectionnée + tendance depuis le début).
-render_weight_plot <- function(df, target, n_jours, proj, df_brut = NULL, distinguer_moment = FALSE) {
+render_weight_plot <- function(df, target, n_jours, proj, df_brut = NULL, distinguer_moment = FALSE,
+                                target_intermediaire = NULL, proj_intermediaire = NULL) {
   df <- add_smoothed(df, window = min(7, nrow(df)))
   utiliser_moment <- isTRUE(distinguer_moment) && !is.null(df_brut) && nrow(df_brut) > 0
 
@@ -89,6 +90,23 @@ render_weight_plot <- function(df, target, n_jours, proj, df_brut = NULL, distin
       )
   }
 
+  if (!is.null(target_intermediaire)) {
+    p <- p + geom_hline(yintercept = target_intermediaire, color = "#7f8c8d", linetype = "dotted")
+
+    if (!is.null(proj_intermediaire) && isTRUE(proj_intermediaire$atteignable) &&
+        !is.na(proj_intermediaire$date_estimee) && proj_intermediaire$date_estimee <= horizon_max) {
+      p <- p +
+        geom_point(
+          data = data.frame(date = proj_intermediaire$date_estimee, poids = target_intermediaire),
+          aes(date, poids), color = "#7f8c8d", size = 3
+        ) +
+        annotate(
+          "text", x = proj_intermediaire$date_estimee, y = target_intermediaire,
+          label = "intermédiaire", vjust = -1, color = "#7f8c8d"
+        )
+    }
+  }
+
   p +
     scale_x_date(expand = expansion(mult = c(0.02, 0.12))) +
     labs(x = NULL, y = "Poids (kg)") +
@@ -110,6 +128,8 @@ render_bmi_plot <- function(df, target, taille_m = TAILLE_M) {
   bandes <- data.frame(ymin = bornes[-length(bornes)], ymax = bornes[-1])
   bandes$label <- as.character(imc_categorie((bandes$ymin + bandes$ymax) / 2))
 
+  imc_cible <- imc(target, taille_m)
+
   ggplot() +
     geom_rect(
       data = bandes,
@@ -119,7 +139,11 @@ render_bmi_plot <- function(df, target, taille_m = TAILLE_M) {
     scale_fill_manual(name = NULL, values = setNames(IMC_COULEURS, IMC_LABELS)) +
     geom_point(data = d, aes(date, imc), size = 2, color = "#2c3e50") +
     geom_line(data = d, aes(date, imc_lisse), color = "#2c3e50", linewidth = 0.8) +
-    geom_hline(yintercept = imc(target, taille_m), color = "#27ae60", linetype = "dotted") +
+    geom_hline(yintercept = imc_cible, color = "#27ae60", linetype = "dotted") +
+    annotate(
+      "text", x = max(d$date), y = imc_cible,
+      label = sprintf("IMC cible : %.1f", imc_cible), vjust = -1, hjust = 1, color = "#27ae60"
+    ) +
     scale_x_date(expand = expansion(mult = c(0.02, 0.02))) +
     labs(x = NULL, y = "IMC") +
     theme_minimal(base_size = 14) +
