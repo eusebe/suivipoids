@@ -149,3 +149,21 @@ render_bmi_plot <- function(df, target, taille_m = TAILLE_M) {
     theme_minimal(base_size = 14) +
     theme(legend.position = "bottom")
 }
+
+# Graphique du rythme (pente en kg/semaine, fenêtre glissante) : permet de
+# voir si la perte/prise de poids accélère ou ralentit dans le temps. Vert
+# quand la pente va dans le sens de l'objectif, rouge sinon.
+render_speed_plot <- function(df, target, fenetre = 14) {
+  v <- vitesse_glissante(df, fenetre = fenetre)
+  poids_depart <- df$poids[which.min(df$date)]
+  direction_cible <- sign(target - poids_depart)
+  v$bon_sens <- sign(v$pente_semaine) == direction_cible
+
+  ggplot(v, aes(date, pente_semaine, fill = bon_sens)) +
+    geom_hline(yintercept = 0, color = "#95a5a6") +
+    geom_col(width = 5) +
+    scale_fill_manual(values = c("TRUE" = "#27ae60", "FALSE" = "#e74c3c"), guide = "none") +
+    scale_x_date(expand = expansion(mult = c(0.02, 0.02))) +
+    labs(x = NULL, y = "kg/semaine") +
+    theme_minimal(base_size = 14)
+}

@@ -1,0 +1,28 @@
+/* Résumé texte : blocs compacts, sauts de ligne internes plutôt que
+   paragraphes espacés, pour limiter le défilement sur mobile. */
+.resume p {
+  margin: 0 0 0.6em 0;
+  line-height: 1.35;
+}
+.resume p:last-child {
+  margin-bottom: 0;
+}
+.resume .muted {
+  color: #7f8c8d;
+  font-size: 0.85em;
+  font-style: italic;
+}
+
+/* Table des dernières pesées */
+.table-pesees {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+.table-pesees th,
+.table-pesees td {
+  text-align: left;
+  padding: 0.2em 0.6em 0.2em 0;
+  border-bottom: 1px solid #eee;
+  white-space: nowrap;
+}

@@ -1,6 +1,8 @@
 ---
 title: "Mon poids"
-format: dashboard
+format:
+  dashboard:
+    css: styles.css
 server: shiny
 ---
 
@@ -36,32 +38,51 @@ selectInput(
   ),
   selected = "14"
 )
+selectInput(
+  "fenetre_comparaison", "Comparer sur",
+  choices = c("7 jours" = "7", "14 jours" = "14", "30 jours" = "30"),
+  selected = "7"
+)
 dateInput("date_cible", "Poids estimé le", value = Sys.Date() + 30, format = "dd/mm/yyyy")
 checkboxInput("distinguer_moment", "Distinguer matin / midi / soir", value = TRUE)
 actionButton("refresh", "Rafraîchir", icon = icon("rotate"))
 ```
 
-## Row {height="55%"}
+## Row {height="45%"}
 
 ```{r}
 #| title: Évolution du poids
 plotOutput("weightPlot")
 ```
 
-## Row {height="45%"}
+## Row {height="35%"}
 
-### Column {width="50%"}
+### Column {width="34%"}
 
 ```{r}
 #| title: Résumé
 uiOutput("summary")
 ```
 
-### Column {width="50%"}
+### Column {width="33%"}
 
 ```{r}
 #| title: IMC
 plotOutput("bmiPlot")
+```
+
+### Column {width="33%"}
+
+```{r}
+#| title: Rythme
+plotOutput("speedPlot")
+```
+
+## Row {height="20%"}
+
+```{r}
+#| title: Dernières pesées
+uiOutput("dernieresPesees")
 ```
 
 ```{r}
@@ -113,6 +134,39 @@ output$bmiPlot <- renderPlot({
   render_bmi_plot(d, target_ou_defaut(d))
 })
 
+output$speedPlot <- renderPlot({
+  d <- weight_data()
+  validate(need(nrow(d) >= 2, "Pas encore assez de données."))
+  target <- target_ou_defaut(d)
+  v <- vitesse_glissante(ref()$serie)
+  validate(need(nrow(v) >= 1, "Pas encore assez d'historique pour estimer un rythme."))
+  render_speed_plot(ref()$serie, target)
+})
+
+output$dernieresPesees <- renderUI({
+  df_brut <- weight_data_brut()
+  if (nrow(df_brut) == 0) {
+    return(tags$p("Aucune pesée enregistrée."))
+  }
+
+  d <- df_brut[order(df_brut$heure, decreasing = TRUE), ]
+  d <- head(d, 10)
+
+  lignes <- lapply(seq_len(nrow(d)), function(i) {
+    tags$tr(
+      tags$td(format(d$heure[i], "%d/%m/%Y %H:%M")),
+      tags$td(as.character(d$moment[i])),
+      tags$td(sprintf("%.1f kg", d$poids[i]))
+    )
+  })
+
+  tags$table(
+    class = "table-pesees",
+    tags$thead(tags$tr(tags$th("Date"), tags$th("Moment"), tags$th("Poids"))),
+    tags$tbody(lignes)
+  )
+})
+
 output$summary <- renderUI({
   d <- weight_data()
 
@@ -123,110 +177,109 @@ output$summary <- renderUI({
   poids_actuel <- d$poids[which.max(d$date)]
   imc_actuel <- imc(poids_actuel)
 
-  lignes <- list(
-    tags$p(sprintf(
-      "Poids actuel : %.1f kg (dernière pesée le %s)",
-      poids_actuel, format(max(d$date), "%d/%m/%Y")
-    )),
-    tags$p(sprintf(
-      "IMC actuel : %.1f (%s)",
-      imc_actuel, as.character(imc_categorie(imc_actuel))
-    ))
-  )
+  blocs <- list(tags$p(HTML(sprintf(
+    "<strong>%.1f kg</strong> le %s<br><strong>IMC %.1f</strong> — %s",
+    poids_actuel, format(max(d$date), "%d/%m/%Y"),
+    imc_actuel, as.character(imc_categorie(imc_actuel))
+  ))))
 
   if (nrow(d) < 2) {
-    lignes <- c(lignes, list(tags$p(
+    blocs <- c(blocs, list(tags$p(
       "Ajoute au moins 2 pesées à des dates différentes pour voir une tendance."
     )))
-    return(do.call(tagList, lignes))
+    return(tags$div(class = "resume", do.call(tagList, blocs)))
   }
 
   target <- target_ou_defaut(d)
   fen <- n_jours()
+  n_comp <- as.numeric(input$fenetre_comparaison)
   reference <- ref()
   sref <- reference$serie
   proj <- project_target(sref, target, fen)
-  wow <- week_over_week(sref)
+  comp <- periode_over_periode(sref, n_comp)
   stats_fenetre <- window_data(d, fen)
   reg7 <- regularite_pesees(d, 7)
   reg30 <- regularite_pesees(d, 30)
   poids_estime <- weight_at_date(sref, input$date_cible, fen)
 
-  lignes <- c(lignes, list(
-    tags$p(sprintf("Tendance : %+.2f kg/semaine", proj$pente_semaine))
-  ))
-
+  # Bloc tendance : pente, base (matin/tout), comparaison de période
+  tendance_lignes <- sprintf("Tendance : <strong>%+.2f kg/semaine</strong>", proj$pente_semaine)
   if (reference$base == "matin") {
-    lignes <- c(lignes, list(tags$p(
-      "Basée sur les pesées du matin uniquement, plus comparables d'un jour à l'autre."
-    )))
+    tendance_lignes <- c(tendance_lignes, "<span class=\"muted\">Basée sur les pesées du matin</span>")
   }
-
-  if (!is.na(wow$delta)) {
-    lignes <- c(lignes, list(tags$p(sprintf(
-      "Cette semaine : %.1f kg en moyenne (%+.1f kg vs semaine précédente)",
-      wow$moyenne_recente, wow$delta
-    ))))
+  if (!is.na(comp$delta)) {
+    tendance_lignes <- c(tendance_lignes, sprintf(
+      "%d derniers jours : <strong>%.1f kg</strong> (%+.1f kg vs période précédente)",
+      n_comp, comp$moyenne_recente, comp$delta
+    ))
   }
+  blocs <- c(blocs, list(tags$p(HTML(paste(tendance_lignes, collapse = "<br>")))))
 
   if (isTRUE(is_plateau(sref, target))) {
-    lignes <- c(lignes, list(tags$p(
-      "Ton poids semble stable ces derniers jours : c'est normal, un plateau ne veut pas dire que la tendance de fond s'arrête."
+    blocs <- c(blocs, list(tags$p(class = "muted",
+      "Poids stable ces derniers jours : c'est normal, un plateau ne veut pas dire que la tendance de fond s'arrête."
     )))
   }
 
-  lignes <- c(lignes, list(
-    tags$p(sprintf(
-      "Sur la période affichée : min %.1f kg, max %.1f kg, moyenne %.1f kg",
-      min(stats_fenetre$poids), max(stats_fenetre$poids), mean(stats_fenetre$poids)
-    )),
-    tags$p(sprintf(
-      "Pesées : %d/7 cette semaine, %d/30 ce mois-ci",
-      reg7, reg30
-    ))
-  ))
+  # Bloc stats période + régularité
+  blocs <- c(blocs, list(tags$p(HTML(sprintf(
+    "Période : min <strong>%.1f</strong> · max <strong>%.1f</strong> · moyenne <strong>%.1f kg</strong><br>Pesées : <strong>%d/7</strong> cette semaine · <strong>%d/30</strong> ce mois",
+    min(stats_fenetre$poids), max(stats_fenetre$poids), mean(stats_fenetre$poids), reg7, reg30
+  )))))
 
   if (!is.na(poids_estime)) {
-    lignes <- c(lignes, list(tags$p(sprintf(
-      "Poids estimé le %s : %.1f kg",
+    blocs <- c(blocs, list(tags$p(HTML(sprintf(
+      "Poids estimé le %s : <strong>%.1f kg</strong>",
       format(input$date_cible, "%d/%m/%Y"), poids_estime
-    ))))
+    )))))
   }
+
+  # Bloc objectifs : intermédiaire, final, prochain palier
+  objectif_lignes <- character(0)
 
   target_inter <- input$objectif_intermediaire
   if (!is.na(target_inter) && target_inter != target &&
       sign(target_inter - poids_actuel) == sign(target - poids_actuel)) {
     proj_inter <- project_target(sref, target_inter, fen)
     if (isTRUE(proj_inter$atteignable)) {
-      lignes <- c(lignes, list(tags$p(sprintf(
-        "Objectif intermédiaire %.1f kg : estimé le %s",
+      objectif_lignes <- c(objectif_lignes, sprintf(
+        "Intermédiaire <strong>%.1f kg</strong> : estimé le %s",
         target_inter, format(proj_inter$date_estimee, "%d/%m/%Y")
-      ))))
+      ))
     }
   }
 
   if (isTRUE(proj$atteignable)) {
+    objectif_lignes <- c(objectif_lignes, sprintf(
+      "Objectif <strong>%.1f kg</strong> : reste <strong>%.1f kg</strong>, estimé le %s (%d j)",
+      target, abs(proj$kg_restant), format(proj$date_estimee, "%d/%m/%Y"), round(proj$jours_restants)
+    ))
     palier <- next_milestone(poids_actuel, target)
     proj_palier <- project_target(sref, palier, fen)
-    lignes <- c(lignes, list(
-      tags$p(sprintf("Objectif %.1f kg : reste %.1f kg", target, abs(proj$kg_restant))),
-      tags$p(sprintf(
-        "Date estimée : %s (dans %d jours)",
-        format(proj$date_estimee, "%d/%m/%Y"), round(proj$jours_restants)
-      ))
-    ))
     if (palier != target && isTRUE(proj_palier$atteignable)) {
-      lignes <- c(lignes, list(tags$p(sprintf(
-        "Prochain palier : %.1f kg, estimé le %s",
+      objectif_lignes <- c(objectif_lignes, sprintf(
+        "Prochain palier <strong>%.1f kg</strong> : %s",
         palier, format(proj_palier$date_estimee, "%d/%m/%Y")
-      ))))
+      ))
     }
   } else {
-    lignes <- c(lignes, list(
-      tags$p("La tendance actuelle ne va pas vers cet objectif pour l'instant.")
-    ))
+    objectif_lignes <- c(objectif_lignes, "La tendance actuelle ne va pas vers l'objectif pour l'instant.")
   }
 
-  do.call(tagList, lignes)
+  blocs <- c(blocs, list(tags$p(HTML(paste(objectif_lignes, collapse = "<br>")))))
+
+  # Bloc historique des paliers franchis
+  historique <- paliers_franchis(sref, target)
+  if (nrow(historique) > 0) {
+    recents <- head(historique, 5)
+    texte <- paste(sprintf(
+      "<strong>%.0f kg</strong> — %s", recents$palier, format(recents$date, "%d/%m/%Y")
+    ), collapse = "<br>")
+    blocs <- c(blocs, list(tags$p(HTML(paste0(
+      "<span class=\"muted\">Paliers franchis</span><br>", texte
+    )))))
+  }
+
+  tags$div(class = "resume", do.call(tagList, blocs))
 })
 ```

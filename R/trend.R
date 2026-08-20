@@ -73,19 +73,19 @@ project_target <- function(df, target, n_jours = Inf) {
   )
 }
 
-# Poids moyen des 7 derniers jours vs des 7 jours précédents
-week_over_week <- function(df) {
+# Poids moyen sur les `n_jours` derniers jours vs les `n_jours` précédents
+periode_over_periode <- function(df, n_jours = 7) {
   df <- df[order(df$date), ]
   fin <- max(df$date)
-  semaine_recente <- df[df$date > fin - 7, ]
-  semaine_precedente <- df[df$date <= fin - 7 & df$date > fin - 14, ]
+  periode_recente <- df[df$date > fin - n_jours, ]
+  periode_precedente <- df[df$date <= fin - n_jours & df$date > fin - 2 * n_jours, ]
 
-  if (nrow(semaine_recente) == 0 || nrow(semaine_precedente) == 0) {
+  if (nrow(periode_recente) == 0 || nrow(periode_precedente) == 0) {
     return(list(moyenne_recente = NA_real_, moyenne_precedente = NA_real_, delta = NA_real_))
   }
 
-  moyenne_recente <- mean(semaine_recente$poids)
-  moyenne_precedente <- mean(semaine_precedente$poids)
+  moyenne_recente <- mean(periode_recente$poids)
+  moyenne_precedente <- mean(periode_precedente$poids)
   list(
     moyenne_recente = moyenne_recente,
     moyenne_precedente = moyenne_precedente,
@@ -119,7 +119,7 @@ regularite_pesees <- function(df, n_jours = 7) {
 # Plateau : variation quasi nulle sur les 7 derniers jours (vs les 7 précédents)
 # alors que la tendance de fond (fenêtre longue) va toujours dans le bon sens
 is_plateau <- function(df, target, seuil_kg = 0.3, n_jours_long = 30) {
-  wow <- week_over_week(df)
+  wow <- periode_over_periode(df, 7)
   if (is.na(wow$delta)) return(FALSE)
   trend_long <- fit_trend(df, n_jours_long)
   if (is.null(trend_long$modele) || is.na(trend_long$pente_semaine)) return(FALSE)
@@ -141,4 +141,62 @@ serie_reference <- function(df_daily, df_brut = NULL, distinguer_moment = FALSE)
     }
   }
   list(serie = df_daily, base = "tout")
+}
+
+# Historique des paliers (multiples de `pas` kg) franchis depuis la première
+# pesée, dans le sens de l'objectif. Un palier est "franchi" à la première
+# date où le meilleur poids atteint jusque là (min ou max cumulé selon le
+# sens) passe ce seuil. Retourne les paliers les plus récents en premier.
+paliers_franchis <- function(df, target, pas = 1) {
+  vide <- data.frame(palier = numeric(0), date = as.Date(character(0)))
+  df <- df[order(df$date), ]
+  if (nrow(df) == 0) return(vide)
+
+  poids_depart <- df$poids[1]
+  if (poids_depart == target) return(vide)
+  direction <- sign(target - poids_depart)
+
+  depart_arrondi <- if (direction < 0) floor(poids_depart / pas) * pas else ceiling(poids_depart / pas) * pas
+  cible_arrondie <- if (direction < 0) ceiling(target / pas) * pas else floor(target / pas) * pas
+  if (sign(cible_arrondie - depart_arrondi) != direction) return(vide)
+
+  paliers <- seq(depart_arrondi, cible_arrondie, by = direction * pas)
+  paliers <- paliers[sign(paliers - poids_depart) == direction]
+  if (length(paliers) == 0) return(vide)
+
+  meilleur <- if (direction < 0) cummin(df$poids) else cummax(df$poids)
+  resultats <- lapply(paliers, function(p) {
+    idx <- if (direction < 0) which(meilleur <= p)[1] else which(meilleur >= p)[1]
+    if (is.na(idx)) return(NULL)
+    data.frame(palier = p, date = df$date[idx])
+  })
+  resultats <- Filter(Negate(is.null), resultats)
+  if (length(resultats) == 0) return(vide)
+  out <- do.call(rbind, resultats)
+  out[order(out$date, decreasing = TRUE), ]
+}
+
+# Pente (kg/semaine) calculée sur une fenêtre glissante de `fenetre` jours,
+# évaluée tous les `pas_jours` jours : permet de visualiser si le rythme de
+# perte/prise accélère ou ralentit dans le temps.
+vitesse_glissante <- function(df, fenetre = 14, pas_jours = 7) {
+  vide <- data.frame(date = as.Date(character(0)), pente_semaine = numeric(0))
+  df <- df[order(df$date), ]
+  if (nrow(df) < 2) return(vide)
+
+  dates_eval <- seq(min(df$date) + fenetre, max(df$date), by = pas_jours)
+  if (length(dates_eval) == 0 || max(dates_eval) < max(df$date)) {
+    dates_eval <- c(dates_eval, max(df$date))
+  }
+
+  resultats <- lapply(dates_eval, function(d_fin) {
+    sous <- df[df$date > d_fin - fenetre & df$date <= d_fin, ]
+    if (nrow(sous) < 2) return(NULL)
+    tr <- fit_trend(sous, Inf)
+    if (is.null(tr$modele)) return(NULL)
+    data.frame(date = d_fin, pente_semaine = tr$pente_semaine)
+  })
+  resultats <- Filter(Negate(is.null), resultats)
+  if (length(resultats) == 0) return(vide)
+  do.call(rbind, resultats)
 }
