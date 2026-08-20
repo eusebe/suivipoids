@@ -209,8 +209,8 @@ output$summary <- renderUI({
   }
   if (!is.na(comp$delta)) {
     tendance_lignes <- c(tendance_lignes, sprintf(
-      "%d derniers jours : <strong>%.1f kg</strong> (%+.1f kg vs période précédente)",
-      n_comp, comp$moyenne_recente, comp$delta
+      "Moyenne des %d derniers jours : <strong>%.1f kg</strong> (%+.1f kg vs moyenne des %d jours d'avant)",
+      n_comp, comp$moyenne_recente, comp$delta, n_comp
     ))
   }
   blocs <- c(blocs, list(tags$p(HTML(paste(tendance_lignes, collapse = "<br>")))))
