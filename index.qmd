@@ -15,6 +15,9 @@ source("R/bmi.R")
 source("R/plot.R")
 library(shiny)
 
+# En local : `SUIVIPOIDS_FAKE_DATA=true quarto preview index.qmd` -> fausses données (R/fake_data.R).
+# Sans cette variable (ex. `quarto preview index.qmd`) -> vraies données via gs_auth() + le Google Sheet.
+# Jamais définie sur Connect Cloud : en production, toujours les vraies données.
 fake_data_mode <- identical(Sys.getenv("SUIVIPOIDS_FAKE_DATA"), "true")
 if (fake_data_mode) {
   source("R/fake_data.R")
