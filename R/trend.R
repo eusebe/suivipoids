@@ -184,9 +184,16 @@ vitesse_glissante <- function(df, fenetre = 14, pas_jours = 7) {
   df <- df[order(df$date), ]
   if (nrow(df) < 2) return(vide)
 
-  dates_eval <- seq(min(df$date) + fenetre, max(df$date), by = pas_jours)
-  if (length(dates_eval) == 0 || max(dates_eval) < max(df$date)) {
-    dates_eval <- c(dates_eval, max(df$date))
+  premiere_eval <- min(df$date) + fenetre
+  if (premiere_eval > max(df$date)) {
+    # Historique plus court que la fenêtre : une seule évaluation, sur tout
+    # l'historique disponible (sinon seq() plante : from > to avec un pas positif).
+    dates_eval <- max(df$date)
+  } else {
+    dates_eval <- seq(premiere_eval, max(df$date), by = pas_jours)
+    if (max(dates_eval) < max(df$date)) {
+      dates_eval <- c(dates_eval, max(df$date))
+    }
   }
 
   resultats <- lapply(dates_eval, function(d_fin) {
